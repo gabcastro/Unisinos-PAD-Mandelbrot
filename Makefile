@@ -9,11 +9,11 @@ CC = g++
 COMPILER_FLAGS = -w
 
 #LINKER_FLAGS specifies the libraries we're linking against
-LINKER_FLAGS = -lGL -lSDL2 -lGLEW
+LINKER_FLAGS = -lX11
 
 #OBJ_NAME specifies the name of our exectuable
 OBJ_NAME = main
 
 #This is the target that compiles our executable
-all : $(OBJS)
+build : $(OBJS)
 	$(CC) $(OBJS) $(COMPILER_FLAGS) $(LINKER_FLAGS) -o $(OBJ_NAME)

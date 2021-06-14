@@ -1,323 +1,144 @@
+/* Sequential Mandelbrot program */
 
-#include <GL/glew.h>
-
-#include <SDL2/SDL.h>
-
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <X11/Xos.h>
 #include <stdio.h>
-#include <iostream>
-#include <stdexcept>
-#include <string>
-#include <functional>
-#include <utility>
-#include <fstream>
-#include <iterator>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
 
-constexpr int WINDOW_WIDTH  = 800;
-constexpr int WINDOW_HEIGHT = 600;
+#define X_RESN 800 /* x resolution */
+#define Y_RESN 800 /* y resolution */
 
-namespace
-{    
-    class GLobject
-    {
-    public:
-        using deleter_type = std::function<void(GLuint)>;
-
-    private:
-        GLuint index;
-        deleter_type deleter;
-
-    public:
-        GLobject(GLuint index, deleter_type deleter) : index{index}, deleter{std::move(deleter)} {}
-        GLobject(const GLobject&) = delete;
-        GLobject(GLobject&& globject) noexcept : index{globject.index}, deleter{std::move(globject.deleter)}
-        {
-            globject.index = 0;
-        }
-        ~GLobject() {deleter(index);}
-
-        GLobject& operator=(const GLobject&) = delete;
-
-        GLobject& operator=(GLobject&& globject) noexcept
-        {
-            if (this == &globject) return *this;
-
-            index = globject.index;
-            deleter = std::move(globject.deleter);
-
-            return *this;
-        }
-
-        operator GLuint() const noexcept {return index;}
-    };
-
-    struct MandelbrotData
-    {
-        float scale;
-        float x;
-        float y;
-        unsigned max_iterations;
-    };
-
-    struct RenderData
-    {
-        GLuint shader_program;
-        GLuint vertex_array_object;
-    };
-
-    GLobject create_rectangle_buffer()
-    {
-        GLobject buffer
-        {
-            []
-            {
-                GLuint buffer;
-                ::glGenBuffers(1, &buffer);
-
-                if (!buffer)
-                    throw std::runtime_error{"buffer generation error"};
-
-                return buffer;
-
-            }(), [](GLuint buffer){::glDeleteBuffers(1, &buffer);}
-        };
-
-        constexpr GLfloat rectangle_data[]
-        {
-            -1.0F, -1.0F, 0.0F,
-             1.0F, -1.0F, 0.0F,
-             1.0F,  1.0F, 0.0F,
-             1.0F,  1.0F, 0.0F,
-            -1.0F,  1.0F, 0.0F,
-            -1.0F, -1.0F, 0.0F
-        };
-
-        ::glBindBuffer(GL_ARRAY_BUFFER, buffer);
-        ::glBufferData(GL_ARRAY_BUFFER, sizeof(rectangle_data), rectangle_data, GL_STATIC_DRAW);
-        ::glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-        return buffer;
-    }
-
-    GLobject create_rectangle_vertex_array_object(const GLobject& rectangle_buffer)
-    {
-        GLobject vertex_array_object
-        {
-            []
-            {
-                GLuint vertex_array_object;
-                ::glGenVertexArrays(1, &vertex_array_object);
-
-                if (!vertex_array_object)
-                    throw std::runtime_error{"vertex array object generation error"};
-
-                return vertex_array_object;
-
-            }(), [](GLuint vertex_array_object) {::glDeleteVertexArrays(1, &vertex_array_object);}
-        };
-
-        ::glBindVertexArray(vertex_array_object);
-        ::glBindBuffer(GL_ARRAY_BUFFER, rectangle_buffer);
-        ::glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), nullptr);
-        ::glEnableVertexAttribArray(0);
-        ::glBindBuffer(GL_ARRAY_BUFFER, 0);
-        ::glBindVertexArray(0);
-
-        return vertex_array_object;
-    }
-
-    GLobject create_shader(const std::string& source, GLenum shader_type)
-    {
-        GLobject shader
-        {
-            [shader_type]
-            {
-                const GLuint shader = ::glCreateShader(shader_type);
-                if (!shader)
-                    throw std::runtime_error{"shader creation error"};
-
-                return shader;
-
-            }(), [](GLuint shader) {::glDeleteShader(shader);}
-        };
-
-        const char* const source_cstr = source.c_str();
-        ::glShaderSource(shader, 1, &source_cstr, nullptr);
-        ::glCompileShader(shader);
-        
-        GLint status;
-        ::glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
-        if (status == GL_FALSE)
-            throw std::runtime_error{"shader compilation error"};
-
-        return shader;
-    }
-
-    GLobject create_shader_program(const std::string& vertex_shader_source, const std::string& fragment_shader_source)
-    {
-        GLobject shader_program
-        {
-            []
-            {
-                const GLuint shader_program = ::glCreateProgram();
-                if (!shader_program)
-                    throw std::runtime_error{"shader program creation error"};
-
-                return shader_program;
-
-            }(), [](GLuint shader_program) {::glDeleteProgram(shader_program);}
-        };
-
-        const GLobject vertex_shader{::create_shader(vertex_shader_source, GL_VERTEX_SHADER)};
-        const GLobject fragment_shader{::create_shader(fragment_shader_source, GL_FRAGMENT_SHADER)};
-
-        ::glAttachShader(shader_program, vertex_shader);
-        ::glAttachShader(shader_program, fragment_shader);
-        ::glLinkProgram(shader_program);
-
-        GLint status;
-        ::glGetProgramiv(shader_program, GL_LINK_STATUS, &status);
-        if (status == GL_FALSE)
-            throw std::runtime_error{"failed to link shader program"};
-
-        ::glDetachShader(shader_program, vertex_shader);
-        ::glDetachShader(shader_program, fragment_shader);
-
-        return shader_program;
-    }
-
-    std::string read_file(const std::string& file_path)
-    {
-        std::ifstream stream{file_path, std::ios::in};
-        if (!stream)
-            throw std::runtime_error{"file reading error"};
-
-        return {std::istreambuf_iterator<char>{stream}, std::istreambuf_iterator<char>{}};
-    }
-
-    void do_events(MandelbrotData& mandelbrotData, bool& running) noexcept
-    {
-        static SDL_Event event;
-
-        while (::SDL_PollEvent(&event))
-        {
-            switch (event.type)
-            {
-                case SDL_KEYDOWN:
-                {
-                    const SDL_Scancode scancode = event.key.keysym.scancode;
-
-                    const float scale_per = 0.1F * mandelbrotData.scale;
-
-                    if      (scancode == SDL_SCANCODE_W)
-                        mandelbrotData.y += scale_per;
-                    else if (scancode == SDL_SCANCODE_S)
-                        mandelbrotData.y -= scale_per;
-
-                    if      (scancode == SDL_SCANCODE_A)
-                        mandelbrotData.x -= scale_per;
-                    else if (scancode == SDL_SCANCODE_D)
-                        mandelbrotData.x += scale_per;
-
-                    if      (scancode == SDL_SCANCODE_Z)
-                        mandelbrotData.scale -= scale_per;
-                    else if (scancode == SDL_SCANCODE_X)
-                        mandelbrotData.scale += scale_per;
-
-                    if      (scancode == SDL_SCANCODE_R)
-                        ++mandelbrotData.max_iterations;
-                    else if (scancode == SDL_SCANCODE_E)
-                        if (mandelbrotData.max_iterations > 0) --mandelbrotData.max_iterations;
-
-                    break;
-                }
-                case SDL_QUIT:
-                    running = false;
-                break;
-            }
-        }
-    }
-
-    void render(const MandelbrotData& mandelbrot_data, const RenderData& render_data) noexcept
-    {
-        ::glClear(GL_COLOR_BUFFER_BIT);
-
-        ::glUseProgram(render_data.shader_program);
-        ::glUniform1f(0, WINDOW_WIDTH);
-        ::glUniform1f(1, WINDOW_HEIGHT);
-        ::glUniform2f(2, -2.0F * mandelbrot_data.scale + mandelbrot_data.x,
-                          1.0F * mandelbrot_data.scale + mandelbrot_data.x);
-        ::glUniform2f(3, -1.0F * mandelbrot_data.scale + mandelbrot_data.y,
-                          1.0F * mandelbrot_data.scale + mandelbrot_data.y);
-        ::glUniform1ui(4, mandelbrot_data.max_iterations);
-
-        ::glBindVertexArray(render_data.vertex_array_object);
-        ::glDrawArrays(GL_TRIANGLES, 0, 6);
-        ::glBindVertexArray(0);
-
-        ::glUseProgram(0);
-    }
+unsigned long _RGB(int r,int g, int b)
+{
+    return b + (g<<8) + (r<<16);
 }
+
+typedef struct complextype
+{
+    float real, imag;
+} Compl;
 
 int main()
 {
-    if (::SDL_Init(SDL_INIT_VIDEO) >= 0)
+    Window win;                        /* initialization for a window */
+    unsigned int width, height,        /* window size */
+        x, y,                          /* window position */
+        border_width,                  /*border width in pixels */
+        display_width, display_height, /* size of screen */
+        screen;                        /* which screen */
+
+    char *window_name = "Mandelbrot Set", *display_name = NULL;
+    GC gc;
+    unsigned long valuemask = 0;
+    XGCValues values;
+    Display *display;
+    XSizeHints size_hints;
+    Pixmap bitmap;
+    XPoint points[800];
+    FILE *fp, *fopen();
+    char str[100];
+
+    XSetWindowAttributes attr[1];
+
+    /* Mandlebrot variables */
+    int i, j, k;
+    Compl z, c;
+    float lengthsq, temp;
+
+    /* connect to Xserver */
+
+    if ((display = XOpenDisplay(display_name)) == NULL)
     {
-        ::SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-        ::SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
-        ::SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5);
-        ::SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-
-        SDL_Window* const window = ::SDL_CreateWindow("MandelbrotGL",
-                SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_OPENGL);
-        if (window)
-        {
-            const SDL_GLContext gl_context = ::SDL_GL_CreateContext(window);
-            if (gl_context)
-            {
-                ::glewExperimental = GL_TRUE;
-                ::glewInit();
-
-                try
-                {
-                    const GLobject rectangle_buffer{::create_rectangle_buffer()};
-                    const GLobject rectangle_vertex_array_object{
-                                ::create_rectangle_vertex_array_object(rectangle_buffer)};
-
-                    const GLobject shader_program{::create_shader_program(::read_file("res/mandelbrot_shader.vs"),
-                                                                          ::read_file("res/mandelbrot_shader.fs"))};
-
-                    MandelbrotData mandelbrot_data{1.0F, 0.0F, 0.0F, 30};
-                    const RenderData render_data{shader_program, rectangle_vertex_array_object};
-
-                    bool running = true;
-                    while (running)
-                    {
-                        ::do_events(mandelbrot_data, running);
-                        ::render(mandelbrot_data, render_data);
-
-                        ::SDL_GL_SwapWindow(window);
-                        ::SDL_Delay(30);
-                    }
-                }
-                catch(const std::exception& ex)
-                {
-                    std::cerr << ex.what() << std::endl;
-                }
-
-                ::SDL_GL_DeleteContext(gl_context);
-            }
-            else
-                std::cerr << "SDL_GLContext creation error: " << ::SDL_GetError() << std::endl;
-
-            ::SDL_DestroyWindow(window);
-        }
-        else
-            std::cerr << "SDL_Window creation error: " << ::SDL_GetError() << std::endl;
-
-        ::SDL_Quit();
+        fprintf(stderr, "drawon: cannot connect to X server %s\n",
+                XDisplayName(display_name));
+        exit(-1);
     }
-    else
-        std::cerr << "SDL2 initialization error: " << ::SDL_GetError() << std::endl;
 
-    return 0;
+    /* get screen size */
+
+    screen = DefaultScreen(display);
+    display_width = DisplayWidth(display, screen);
+    display_height = DisplayHeight(display, screen);
+
+    /* set window size */
+
+    width = X_RESN;
+    height = Y_RESN;
+
+    /* set window position */
+
+    x = 0;
+    y = 0;
+
+    /* create opaque window */
+
+    border_width = 4;
+    win = XCreateSimpleWindow(display, RootWindow(display, screen),
+                              x, y, width, height, border_width,
+                              BlackPixel(display, screen), WhitePixel(display, screen));
+
+    size_hints.flags = USPosition | USSize;
+    size_hints.x = x;
+    size_hints.y = y;
+    size_hints.width = width;
+    size_hints.height = height;
+    size_hints.min_width = 300;
+    size_hints.min_height = 300;
+
+    XSetNormalHints(display, win, &size_hints);
+    XStoreName(display, win, window_name);
+
+    /* create graphics context */
+
+    gc = XCreateGC(display, win, valuemask, &values);
+
+    XSetBackground(display, gc, BlackPixel(display, screen));
+    XSetForeground(display, gc, BlackPixel(display, screen));
+    XSetLineAttributes(display, gc, 1, LineSolid, CapRound, JoinRound);
+
+    attr[0].backing_store = Always;
+    attr[0].backing_planes = 1;
+    attr[0].backing_pixel = BlackPixel(display, screen);
+
+    XChangeWindowAttributes(display, win, CWBackingStore | CWBackingPlanes | CWBackingPixel, attr);
+
+    XMapWindow(display, win);
+    XSync(display, 0);
+
+    /* Calculate and draw points */
+
+    for (i = 0; i < X_RESN; i++)
+        for (j = 0; j < Y_RESN; j++)
+        {
+
+            z.real = z.imag = 0.0;
+            c.real = ((float)j - 400.0) / 200.0; /* scale factors for 800 x 800 window */
+            c.imag = ((float)i - 400.0) / 200.0;
+            k = 0;
+
+            do
+            { /* iterate for pixel color */
+
+                temp = z.real * z.real - z.imag * z.imag + c.real;
+                z.imag = 2.0 * z.real * z.imag + c.imag;
+                z.real = temp;
+                lengthsq = z.real * z.real + z.imag * z.imag;
+                k++;
+
+            } while (lengthsq < 4.0 && k < 18);
+
+            if (k == 18) {
+                XSetForeground(display, gc, _RGB(rand() % 256, rand() % 256, 230));
+                XDrawPoint(display, win, gc, j, i);
+            }
+        }
+
+    XFlush(display);
+    sleep(20);
+
+    /* Program Finished */
 }
+

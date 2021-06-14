@@ -6,11 +6,11 @@ Utilização de C++ para criação de um código de processamento paralelo sob a
 
 ### Configurar ambiente e executar
 
-Configurar ambiente: 
-` sudo apt-get isntall libsdl2-dev libglew1.5 libglew1.5-dev `
+Caso o X11 não esteja instalado: 
+` sudo apt-get isntall xorg `
 
-Para exercutar basta dar uma `make` no diretório raiz
+Para exercutar o programa, basta executar o arquivo Makefile, `make`, no diretório raiz
 
 ### External source
 
-Reutilização do código sequencial realizado por Alex Osipchuk (https://github.com/donqustix/MandelbrotGL)
+Reutilização do código sequencial: http://www.cs.nthu.edu.tw/~ychung/homework/para_programming/seq_mandelbrot_c.htm
