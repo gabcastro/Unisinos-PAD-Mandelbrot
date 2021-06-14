@@ -1,5 +1,3 @@
-/* Sequential Mandelbrot program */
-
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/Xos.h>
@@ -7,9 +5,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <pthread.h>
 
 #define X_RESN 800 /* x resolution */
 #define Y_RESN 800 /* y resolution */
+#define NUM_THREADS 4
+
 
 unsigned long _RGB(int r,int g, int b)
 {
@@ -20,6 +21,46 @@ typedef struct complextype
 {
     float real, imag;
 } Compl;
+
+/* where each task will be execute, mandelbrot calc. */
+typedef struct {
+  int xi;
+  int yj;
+} maldelbrot_calc;
+
+/* result of struct of tasks */
+typedef struct {
+  int xi;
+  int yj;
+} result_mandelbrot;
+
+void producer() {
+
+}
+
+void consumer() {
+
+}
+
+/* threads to execute commands */
+void create_threads() {
+    pthread_t producer_threads[NUM_THREADS];
+    pthread_t consumer_thread;
+
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_create(&producer_threads[i], NULL, producer, NULL);
+    }
+
+    pthread_create(&consumer_thread, NULL, consumer, NULL);
+
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_join(producer_threads[i], NULL);
+    }
+
+    pthread_join(consumer_thread, NULL);
+
+}
+
 
 int main()
 {
