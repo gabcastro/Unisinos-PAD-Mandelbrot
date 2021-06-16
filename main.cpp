@@ -11,15 +11,17 @@
 
 using namespace std;
 
+/* =================================== */
+/* =========== DEFINITIONS =========== */
+/* =================================== */
+
 #define X_RESN 800          /* x resolution */
 #define Y_RESN 800          /* y resolution */
 #define WORKER_SPACE 80     /* length of the square to compute maldelbrot calc */
 #define NUM_THREADS 4
 
-unsigned long _RGB(int r,int g, int b)
-{
-    return b + (g<<8) + (r<<16);
-}
+pthread_mutex_t pmutex;
+pthread_cond_t pcond;
 
 typedef struct complextype
 {
@@ -33,6 +35,15 @@ typedef struct {
   int c_term;
   int r_term;
 } quadrant;
+
+/* =============================== */
+/* =========== METHODS =========== */
+/* =============================== */
+
+unsigned long _RGB(int r,int g, int b)
+{
+    return b + (g<<8) + (r<<16);
+}
 
 /* place where the task will be happen 
    like each 80x80 square in a window of 800x800, 
@@ -70,28 +81,31 @@ vector<quadrant> worker_quadrants() {
     return w_buffer;
 }
 
-// void producer() {
+static void *producer(void *str) {
+    while (1) {
+        cout << "producer! " << endl;
+    }
+}
 
-// }
+void create_threads() {
 
-/* threads to execute commands */
-// void create_threads() {
-//     pthread_t producer_threads[NUM_THREADS];
-//     pthread_t consumer_thread;
+    pthread_mutex_init(&pmutex, NULL);
+    pthread_cond_init(&pcond, NULL);
 
-//     for (int i = 0; i < NUM_THREADS; i++) {
-//         pthread_create(&producer_threads[i], NULL, producer, NULL);
-//     }
+    pthread_t producer_threads[NUM_THREADS];
+    pthread_t consumer_thread;
 
-//     pthread_create(&consumer_thread, NULL, consumer, NULL);
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_create(&producer_threads[i], NULL, producer, NULL);
+    }
+    // pthread_create(&consumer_thread, NULL, consumer, NULL);
 
-//     for (int i = 0; i < NUM_THREADS; i++) {
-//         pthread_join(producer_threads[i], NULL);
-//     }
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_join(producer_threads[i], NULL);
+    }
+    // pthread_join(consumer_thread, NULL);
 
-//     pthread_join(consumer_thread, NULL);
-
-// }
+}
 
 
 int main()
@@ -209,6 +223,8 @@ int main()
     //     }
 
     vector<quadrant> qq = worker_quadrants();
+
+    create_threads();
 
     XFlush(display);
     sleep(20);
