@@ -11,17 +11,19 @@
 
 using namespace std;
 
-/* =================================== */
-/* =========== DEFINITIONS =========== */
-/* =================================== */
-
 #define X_RESN 800          /* x resolution */
 #define Y_RESN 800          /* y resolution */
 #define WORKER_SPACE 80     /* length of the square to compute maldelbrot calc */
 #define NUM_THREADS 4
 
-pthread_mutex_t pmutex;
+/* =================================== */
+/* =========== GLOBAL VARS =========== */
+/* =================================== */
+
+pthread_mutex_t pmutex_wBuffer, pmutex_rBuffer;
 pthread_cond_t pcond;
+
+bool goForward = true;
 
 typedef struct complextype
 {
@@ -36,76 +38,30 @@ typedef struct {
   int r_term;
 } quadrant;
 
+vector<quadrant> w_buffer;
+
+typedef struct {
+    int row;
+    int column;
+} map_point;
+
+vector<map_point> r_buffer;
+
+/* Mandlebrot variables */
+
+int i, j, k;
+Compl z, c;
+float lengthsq, temp;
+
 /* =============================== */
 /* =========== METHODS =========== */
 /* =============================== */
 
-unsigned long _RGB(int r,int g, int b)
-{
-    return b + (g<<8) + (r<<16);
-}
-
-/* place where the task will be happen 
-   like each 80x80 square in a window of 800x800, 
-   will result in 10x10 tasks = 100 tasks
-*/
-vector<quadrant> worker_quadrants() {
-    
-    vector<quadrant> w_buffer;
-    int total_quadrants = X_RESN / WORKER_SPACE;
-    int total_tasks;
-
-    int c_init, c_term, r_init, r_term;
-
-    /* 
-        get the area of all squares 
-        columns per line
-    */
-    for (int r = 0; r < total_quadrants; r++)
-        for (int c = 0; c < total_quadrants; c++) {
-            c_init = c * WORKER_SPACE;
-            c_term = ((c + 1) * WORKER_SPACE) - 1;
-
-            r_init = r * WORKER_SPACE;
-            r_term = ((r + 1) * WORKER_SPACE) - 1;
-
-            quadrant w_area;
-            w_area.c_init = c_init;
-            w_area.c_term = c_term;
-            w_area.r_init = r_init;
-            w_area.r_term = r_term;
-
-            w_buffer.push_back(w_area);
-        }
-
-    return w_buffer;
-}
-
-static void *producer(void *str) {
-    while (1) {
-        cout << "producer! " << endl;
-    }
-}
-
-void create_threads() {
-
-    pthread_mutex_init(&pmutex, NULL);
-    pthread_cond_init(&pcond, NULL);
-
-    pthread_t producer_threads[NUM_THREADS];
-    pthread_t consumer_thread;
-
-    for (int i = 0; i < NUM_THREADS; i++) {
-        pthread_create(&producer_threads[i], NULL, producer, NULL);
-    }
-    // pthread_create(&consumer_thread, NULL, consumer, NULL);
-
-    for (int i = 0; i < NUM_THREADS; i++) {
-        pthread_join(producer_threads[i], NULL);
-    }
-    // pthread_join(consumer_thread, NULL);
-
-}
+unsigned long _RGB(int r,int g, int b);
+void calculate_maldelbrot(quadrant *w_area_selected);
+void worker_quadrants();
+void *producer(void *str);
+void create_threads();
 
 
 int main()
@@ -129,11 +85,6 @@ int main()
     char str[100];
 
     XSetWindowAttributes attr[1];
-
-    /* Mandlebrot variables */
-    int i, j, k;
-    Compl z, c;
-    float lengthsq, temp;
 
     /* connect to Xserver */
 
@@ -165,7 +116,7 @@ int main()
     border_width = 4;
     win = XCreateSimpleWindow(display, RootWindow(display, screen),
                               x, y, width, height, border_width,
-                              BlackPixel(display, screen), WhitePixel(display, screen));
+                              BlackPixel(display, screen), _RGB(150,220,230));
 
     size_hints.flags = USPosition | USSize;
     size_hints.x = x;
@@ -197,33 +148,32 @@ int main()
 
     /* Calculate and draw points */
 
-    // for (i = 0; i < X_RESN; i++)
-    //     for (j = 0; j < Y_RESN; j++)
-    //     {
+    for (i = 0; i < X_RESN; i++)
+        for (j = 0; j < Y_RESN; j++)
+        {
 
-    //         z.real = z.imag = 0.0;
-    //         c.real = ((float)j - 400.0) / 200.0; /* scale factors for 800 x 800 window */
-    //         c.imag = ((float)i - 400.0) / 200.0;
-    //         k = 0;
+            z.real = z.imag = 0.0;
+            c.real = ((float)j - 400.0) / 200.0; /* scale factors for 800 x 800 window */
+            c.imag = ((float)i - 400.0) / 200.0;
+            k = 0;
 
-    //         do
-    //         { /* iterate for pixel color */
+            do
+            { /* iterate for pixel color */
 
-    //             temp = z.real * z.real - z.imag * z.imag + c.real;
-    //             z.imag = 2.0 * z.real * z.imag + c.imag;
-    //             z.real = temp;
-    //             lengthsq = z.real * z.real + z.imag * z.imag;
-    //             k++;
+                temp = z.real * z.real - z.imag * z.imag + c.real;
+                z.imag = 2.0 * z.real * z.imag + c.imag;
+                z.real = temp;
+                lengthsq = z.real * z.real + z.imag * z.imag;
+                k++;
 
-    //         } while (lengthsq < 4.0 && k < 20);
+            } while (lengthsq < 4.0 && k < 20);
 
-    //         if (k == 20) {
-    //             XDrawPoint(display, win, gc, j, i);
-    //         }
-    //     }
+            if (k == 20) {
+                XDrawPoint(display, win, gc, j, i);
+            }
+        }
 
-    vector<quadrant> qq = worker_quadrants();
-
+    worker_quadrants();
     create_threads();
 
     XFlush(display);
@@ -232,3 +182,119 @@ int main()
     /* Program Finished */
 }
 
+unsigned long _RGB(int r,int g, int b)
+{
+    return b + (g<<8) + (r<<16);
+}
+
+void calculate_maldelbrot(quadrant *w_area_selected) {
+    
+    for (int row = w_area_selected->r_init; row <= w_area_selected->r_term; row++)
+        for (int col = w_area_selected->c_init; col <= w_area_selected->c_term; col++) {
+            
+            z.real = z.imag = 0.0;
+            c.real = ((float)col - 400.0) / 200.0; /* scale factors for 800 x 800 window */
+            c.imag = ((float)row - 400.0) / 200.0;
+            k = 0;
+
+            do
+            { /* iterate for pixel color */
+
+                temp = z.real * z.real - z.imag * z.imag + c.real;
+                z.imag = 2.0 * z.real * z.imag + c.imag;
+                z.real = temp;
+                lengthsq = z.real * z.real + z.imag * z.imag;
+                k++;
+
+            } while (lengthsq < 4.0 && k < 20);
+
+            if (k == 20) {
+                map_point plotPoint;
+                plotPoint.column = col;
+                plotPoint.row = row;
+
+                r_buffer.push_back(plotPoint);
+            }
+        }
+}
+
+
+/* place where the task will be happen 
+   like each 80x80 square in a window of 800x800, 
+   will result in 10x10 tasks = 100 tasks
+*/
+void worker_quadrants() {    
+    
+    int total_quadrants = X_RESN / WORKER_SPACE;
+    int total_tasks;
+
+    int c_init, c_term, r_init, r_term;
+
+    /* 
+        get the area of all squares 
+        columns per line
+    */
+    for (int r = 0; r < total_quadrants; r++)
+        for (int c = 0; c < total_quadrants; c++) {
+            c_init = c * WORKER_SPACE;
+            c_term = ((c + 1) * WORKER_SPACE) - 1;
+
+            r_init = r * WORKER_SPACE;
+            r_term = ((r + 1) * WORKER_SPACE) - 1;
+
+            quadrant w_area;
+            w_area.c_init = c_init;
+            w_area.c_term = c_term;
+            w_area.r_init = r_init;
+            w_area.r_term = r_term;
+
+            w_buffer.push_back(w_area);
+        }
+}
+
+void *producer(void *str) {
+    while (1) {
+        pthread_mutex_lock(&pmutex_wBuffer);
+
+        if (w_buffer.size() == 0) {
+            pthread_mutex_unlock(&pmutex_wBuffer);
+            break;
+        }
+        quadrant w_area_selected = w_buffer.at(0);
+        w_buffer.erase(w_buffer.begin(), w_buffer.begin()+1);
+
+        pthread_mutex_unlock(&pmutex_wBuffer);
+
+        pthread_mutex_lock(&pmutex_rBuffer);
+
+        while (!goForward)
+            pthread_cond_wait(&pcond, &pmutex_rBuffer);
+
+        goForward = false;
+        calculate_maldelbrot(&w_area_selected);
+        goForward = true;        
+        pthread_cond_signal(&pcond);
+        pthread_mutex_unlock(&pmutex_rBuffer);
+    }
+}
+
+void create_threads() {
+
+    pthread_mutex_init(&pmutex_wBuffer, NULL);
+    pthread_mutex_init(&pmutex_rBuffer, NULL);
+
+    pthread_cond_init(&pcond, NULL);
+
+    pthread_t producer_threads[NUM_THREADS];
+    pthread_t consumer_thread;
+
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_create(&producer_threads[i], NULL, producer, NULL);
+    }
+    // pthread_create(&consumer_thread, NULL, consumer, NULL);
+
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_join(producer_threads[i], NULL);
+    }
+    // pthread_join(consumer_thread, NULL);
+}
