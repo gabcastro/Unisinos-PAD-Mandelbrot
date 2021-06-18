@@ -13,8 +13,8 @@ using namespace std;
 
 #define X_RESN 800          /* x resolution */
 #define Y_RESN 800          /* y resolution */
-#define WORKER_SPACE 80     /* length of the square to compute maldelbrot calc */
-#define NUM_THREADS 6       /* producer threads */
+#define WORKER_SPACE 8     /* length of the square to compute maldelbrot calc */
+#define NUM_THREADS 3       /* producer threads */
 
 /* =================================== */
 /* =========== GLOBAL VARS =========== */
@@ -60,9 +60,12 @@ Window win;
 Display *display;
 GC gc;
 
-/* =============================== */
-/* =========== METHODS =========== */
-/* =============================== */
+vector<int> used_values;
+vector<int> available_values;
+
+/* ================================== */
+/* =========== PROTOTYPES =========== */
+/* ================================== */
 
 unsigned long _RGB(int r,int g, int b);
 void calculate_maldelbrot(quadrant *w_area_selected);
@@ -71,7 +74,9 @@ void *producer(void *str);
 void create_threads();
 void *consumer(void *str);
 void draw_point(map_point *point);
-
+bool check_value(int value);
+int find_pos(int rand_value);
+int get_pos();
 
 int main()
 {
@@ -231,6 +236,8 @@ void worker_quadrants() {
 
             w_buffer.push_back(w_area);
         }
+
+    for (int i = 0; i < w_buffer.size(); i++) available_values.push_back(i);
 }
 
 void *producer(void *str) {
@@ -242,10 +249,14 @@ void *producer(void *str) {
             break;
         }
         
-        cout << "consumindo valor do vetor de posicoes " << endl;
+        // cout << "consumindo valor do vetor de posicoes " << endl;
 
-        quadrant w_area_selected = w_buffer.at(0);
-        w_buffer.erase(w_buffer.begin(), w_buffer.begin()+1);
+        int pos = get_pos();
+        quadrant w_area_selected = w_buffer.at(pos);
+        w_buffer.erase(w_buffer.begin()+pos);
+        
+        // quadrant w_area_selected = w_buffer.at(0);
+        // w_buffer.erase(w_buffer.begin(), w_buffer.begin()+1);
 
         pthread_mutex_unlock(&pmutex_wBuffer);
 
@@ -255,13 +266,13 @@ void *producer(void *str) {
             pthread_cond_wait(&pcond_compute_mandelbrot, &pmutex_rBuffer);
 
         goForward = false;
-        cout << "realiza o calculo mandelbrot" << endl;
+        // cout << "realiza o calculo mandelbrot" << endl;
         calculate_maldelbrot(&w_area_selected);
         goForward = true;  
 
         pthread_mutex_unlock(&pmutex_rBuffer);
 
-        // sleep(3); // good to watch the prints on terminal
+        sleep(0.8); // good to watch the prints on terminal
 
         pthread_cond_signal(&pcond_compute_mandelbrot);
         pthread_cond_signal(&pcond_plot_value);
@@ -276,7 +287,7 @@ void *consumer(void *str) {
             pthread_cond_wait(&pcond_plot_value, &pmutex_rBuffer);
         
         count_pop_buffer++;
-        cout << count_pop_buffer << " - delete data from buffer result " << endl;
+        // cout << count_pop_buffer << " - delete data from buffer result " << endl;
 
         map_point m_point = r_buffer.at(0);
         r_buffer.erase(r_buffer.begin(), r_buffer.begin()+1);
@@ -313,4 +324,39 @@ void create_threads() {
 
 void draw_point(map_point *point) {
     XDrawPoint(display, win, gc, point->column, point->row);
+}
+
+/* methods to get a random value */
+/* this was necessary because rand() funct repeat with frequency the value */
+
+bool check_value(int value) {
+    for (unsigned i=0; i<used_values.size(); ++i) 
+        if (value == used_values[i]) 
+            return true;
+        
+    return false;
+}
+
+int find_pos(int rand_value) {
+    for (unsigned i=0; i<available_values.size(); ++i) 
+        if (rand_value == available_values[i])
+            return i;
+            
+    return 0;
+}
+
+int get_pos() {
+    int rand_value = 0;
+    int pos;
+
+    do {
+        rand_value = (rand() % (available_values.back()-available_values.at(0) + 1) + available_values.at(0));
+    } while (check_value(rand_value));
+
+    used_values.push_back(rand_value);
+    pos = find_pos(rand_value);
+
+    available_values.erase (available_values.begin()+pos);
+
+    return pos;
 }
