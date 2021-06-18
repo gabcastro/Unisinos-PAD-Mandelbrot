@@ -13,8 +13,9 @@ using namespace std;
 
 #define X_RESN 800          /* x resolution */
 #define Y_RESN 800          /* y resolution */
-#define WORKER_SPACE 8     /* length of the square to compute maldelbrot calc */
+#define WORKER_SPACE 40     /* length of the square to compute maldelbrot calc */
 #define NUM_THREADS 3       /* producer threads */
+#define ITERATIONS 1024
 
 /* =================================== */
 /* =========== GLOBAL VARS =========== */
@@ -25,6 +26,7 @@ pthread_cond_t pcond_compute_mandelbrot, pcond_plot_value;
 
 int count_pop_buffer = 0;
 bool goForward = true;
+int colors[ITERATIONS + 1] = {0};
 
 typedef struct complextype
 {
@@ -44,6 +46,7 @@ vector<quadrant> w_buffer;
 typedef struct {
     int row;
     int column;
+    int iteration;
 } map_point;
 
 vector<map_point> r_buffer;
@@ -63,6 +66,25 @@ GC gc;
 vector<int> used_values;
 vector<int> available_values;
 
+int color_palette[] = {
+  4333071,
+  1640218,
+  590127,
+  263241,
+  1892,
+  797834,
+  1594033,
+  3767761,
+  8828389,
+  13888760,
+  154015,
+  16304479,
+  16755200,
+  13402112,
+  109280,
+  6960131
+};
+
 /* ================================== */
 /* =========== PROTOTYPES =========== */
 /* ================================== */
@@ -74,6 +96,7 @@ void *producer(void *str);
 void create_threads();
 void *consumer(void *str);
 void draw_point(map_point *point);
+void mandelbrot_colors(int *colors, int length);
 bool check_value(int value);
 int find_pos(int rand_value);
 int get_pos();
@@ -127,7 +150,7 @@ int main()
     border_width = 4;
     win = XCreateSimpleWindow(display, RootWindow(display, screen),
                               x, y, width, height, border_width,
-                              BlackPixel(display, screen), _RGB(150,220,230));
+                              BlackPixel(display, screen), WhitePixel(display, screen));
 
     size_hints.flags = USPosition | USSize;
     size_hints.x = x;
@@ -157,6 +180,7 @@ int main()
     XMapWindow(display, win);
     XSync(display, 0);
 
+    mandelbrot_colors(colors, ITERATIONS);
     worker_quadrants();
     create_threads();
 
@@ -194,13 +218,16 @@ void calculate_maldelbrot(quadrant *w_area_selected) {
 
             } while (lengthsq < 4.0 && k < 20);
 
-            if (k == 20) {
-                map_point plotPoint;
-                plotPoint.column = col;
-                plotPoint.row = row;
+            map_point plotPoint;
+            plotPoint.column = col;
+            plotPoint.row = row;
 
-                r_buffer.push_back(plotPoint);
-            }
+            if (k == 20)     
+                plotPoint.iteration = k;
+            else 
+                plotPoint.iteration = k;
+            
+            r_buffer.push_back(plotPoint);
         }
 }
 
@@ -272,7 +299,7 @@ void *producer(void *str) {
 
         pthread_mutex_unlock(&pmutex_rBuffer);
 
-        sleep(0.8); // good to watch the prints on terminal
+        // sleep(0.8); // good to watch the prints on terminal
 
         pthread_cond_signal(&pcond_compute_mandelbrot);
         pthread_cond_signal(&pcond_plot_value);
@@ -286,7 +313,7 @@ void *consumer(void *str) {
         while (r_buffer.size() == 0) 
             pthread_cond_wait(&pcond_plot_value, &pmutex_rBuffer);
         
-        count_pop_buffer++;
+        // count_pop_buffer++;
         // cout << count_pop_buffer << " - delete data from buffer result " << endl;
 
         map_point m_point = r_buffer.at(0);
@@ -323,7 +350,19 @@ void create_threads() {
 }
 
 void draw_point(map_point *point) {
-    XDrawPoint(display, win, gc, point->column, point->row);
+    if (point->iteration < 20) {
+        XSetForeground(display, gc, colors[point->iteration]);
+        XDrawPoint(display, win, gc, point->column, point->row);
+    } else {
+        XSetForeground(display, gc, _RGB(0,0,0));
+        XDrawPoint(display, win, gc, point->column, point->row);
+    }
+}
+
+void mandelbrot_colors(int *colors, int length) {
+  for (int i= 0; i < length - 1; i++) {
+    colors[i] = color_palette[i % 16];
+  }
 }
 
 /* methods to get a random value */
