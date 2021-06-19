@@ -13,8 +13,8 @@ using namespace std;
 
 #define X_RESN 800          /* x resolution */
 #define Y_RESN 800          /* y resolution */
-#define WORKER_SPACE 40     /* length of the square to compute maldelbrot calc */
-#define NUM_THREADS 3       /* producer threads */
+#define WORKER_SPACE 100     /* length of the square to compute maldelbrot calc */
+#define NUM_THREADS 10       /* producer threads */
 #define ITERATIONS 1024
 
 /* =================================== */
@@ -221,11 +221,7 @@ void calculate_maldelbrot(quadrant *w_area_selected) {
             map_point plotPoint;
             plotPoint.column = col;
             plotPoint.row = row;
-
-            if (k == 20)     
-                plotPoint.iteration = k;
-            else 
-                plotPoint.iteration = k;
+            plotPoint.iteration = k;
             
             r_buffer.push_back(plotPoint);
         }
@@ -278,12 +274,12 @@ void *producer(void *str) {
         
         // cout << "consumindo valor do vetor de posicoes " << endl;
 
-        int pos = get_pos();
-        quadrant w_area_selected = w_buffer.at(pos);
-        w_buffer.erase(w_buffer.begin()+pos);
+        // int pos = get_pos();
+        // quadrant w_area_selected = w_buffer.at(pos);
+        // w_buffer.erase(w_buffer.begin()+pos);
         
-        // quadrant w_area_selected = w_buffer.at(0);
-        // w_buffer.erase(w_buffer.begin(), w_buffer.begin()+1);
+        quadrant w_area_selected = w_buffer.at(0);
+        w_buffer.erase(w_buffer.begin(), w_buffer.begin()+1);
 
         pthread_mutex_unlock(&pmutex_wBuffer);
 
